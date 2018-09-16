@@ -10,9 +10,8 @@ data Value = I Integer
            | B Bool
            | Nil
            | Cons Integer Value
-           |  F VEnv [Char] [[Char]] Exp
-           |  Func Bind
            -- Others as needed
+           | Closure VEnv [Char] [[Char]] Exp -- env f x e
            deriving (Show)
 
 instance PP.Pretty Value where
@@ -33,12 +32,14 @@ evalE env (Con "True") = B True
 evalE env (Con "False") = B False
 evalE env (Num v) = I v
 
+
 -- List constructors and primops
 evalE env (Con "Nil") = Nil
-evalE env (App (App (Con "Cons") x) xs) = 
-    let I vx = evalE env x
-        vxs = evalE env xs
-    in Cons vx vxs
+evalE env (App (App (Con "Cons") e1) e2) = 
+    let I v1 = evalE env e1
+        v2 = evalE env e2
+    in Cons v1 v2
+
 
 evalE env (App (Prim Head) x) =
     case evalE env x of
@@ -54,6 +55,7 @@ evalE env (App (Prim Null) x) =
     case evalE env x of
     Nil      -> B True
     Cons _ _ -> B False
+
 
 -- Primitive operations
 evalE env (App (App (Prim op) e1) e2) = 
@@ -77,22 +79,42 @@ evalE env (App (Prim Neg) e) =
     let I v = evalE env e 
     in I (-v)
 
+
 -- Variables
 evalE env (Var x) = case E.lookup env x of
     Just v -> v
     Nothing -> error ("error: Nothing")
 
+
 -- Variable Bindings with Let
 evalE env (Let [] e) = evalE env e
--- data Bind = Bind Id Type [Id] Exp
 evalE env (Let ((Bind id _ [] e1) : x) e2) =
     let v1 = evalE env e1
         v2 = evalE (E.add env (id, v1)) (Let x e2)
     in v2
+
 
 -- Evaluation of if-expression
 evalE env (If e1 e2 e3) =
     case evalE env e1 of
       (B True) -> evalE env e2
       (B False) -> evalE env e3
-evalE env exp = error "error: unknown"
+
+
+-- Function values
+evalE env (Recfun (Bind f _ x e)) =
+    let env' = E.add env (f, (Closure env f x e))
+    in Closure env' f x e
+
+
+-- Function Application
+evalE env (App e1 e2) = 
+    let Closure env' f x e = evalE env e1    -- evaluate e1
+        env1 = E.add env' (f, Closure env' f x e)
+        env2 = E.add env1 (head x, evalE env e2) -- evaluate e2
+        r = evalE env2 e
+    in r
+
+
+-- Other
+evalE env e = error "error: other"
