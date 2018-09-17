@@ -1,1 +1,1 @@
-main :: Bool = let ge :: (Int -> Bool) = letfun ge :: (Int -> Bool) = (>=) 10; in ge 10; 
+main :: Bool = let ge :: (Int -> Bool) = recfun ge :: (Int -> Bool) = (>=) 10; in ge 10; 

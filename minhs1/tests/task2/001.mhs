@@ -1,1 +1,1 @@
-main :: Int = let dec :: (Int -> Int) = letfun dec :: (Int -> Int) = (-) 1; in dec 10; 
+main :: Int = let dec :: (Int -> Int) = recfun dec :: (Int -> Int) = (-) 1; in dec 10; 
