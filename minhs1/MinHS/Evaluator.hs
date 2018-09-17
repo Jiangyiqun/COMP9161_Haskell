@@ -26,11 +26,13 @@ evaluate [Bind _ _ _ e] = evalE E.empty e
 evaluate bs = evalE E.empty (Let bs (Var "main"))
 
 
+-- Evaluator function
 evalE :: VEnv -> Exp -> Value
 -- Constants and Boolean Constructors
-evalE env (Con "True") = B True
+evalE env (Num n)       = I n
+evalE env (Con "True")  = B True
 evalE env (Con "False") = B False
-evalE env (Num v) = I v
+
 
 
 -- Primitive operations
@@ -38,18 +40,19 @@ evalE env (App (App (Prim op) e1) e2) =
     let I v1 = evalE env e1
         I v2 = evalE env e2
     in case op of
-        Add   -> I (v1 + v2)
-        Sub   -> I (v1 - v2)
-        Mul   -> I (v1 * v2)
+        Add   -> I $ v1 + v2
+        Sub   -> I $ v1 - v2
+        Mul   -> I $ v1 * v2
         Quot  -> case v2 of
                   0 -> error "error: divide by zero"
                   _ -> I (quot v1 v2)
-        Gt    -> B (v1 > v2)
-        Ge    -> B (v1 >= v2)
-        Lt    -> B (v1 < v2)
-        Le    -> B (v1 <= v2)
-        Eq    -> B (v1 == v2)
-        Ne    -> B (v1 /= v2)
+        -- negate is definded afterwards
+        Gt    -> B $ v1 > v2
+        Ge    -> B $ v1 >= v2
+        Lt    -> B $ v1 < v2
+        Le    -> B $ v1 <= v2
+        Eq    -> B $ v1 == v2
+        Ne    -> B $ v1 /= v2
 -- evalE env (App (Prim Neg) e) =
 --     let I v = evalE env e
 --     in I (-v)
@@ -127,9 +130,11 @@ evalE env (Let ((Bind id _ args e1) : x) e2) =
 
 
 -- Function values
-evalE env (Recfun (Bind f _ x e)) =
-    let env' = E.add env (f, (Closure env f x e))
-    in Closure env' f x e
+evalE env (Recfun (Bind id _ x e)) =
+    let elt = Closure env id x e
+        env' = E.add env (id, elt)
+        v = Closure env' id x e
+    in v
 
 
 -- Function Application
