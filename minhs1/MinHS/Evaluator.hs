@@ -26,17 +26,17 @@ evaluate [Bind _ _ _ e] = evalE E.empty e
 evaluate bs = evalE E.empty (Let bs (Var "main"))
 
 
--- Evaluator function
 evalE :: VEnv -> Exp -> Value
+
+
 -- Constants and Boolean Constructors
 evalE env (Num n)       = I n
--- evalE env (Con "True")  = B True
--- evalE env (Con "False") = B False
 evalE env (Con b)  = 
     case b of
         "True" -> B True
         "False" -> B False
-        "Nil" -> Nil    -- List constructors and primops
+        -- List constructors and primops
+        "Nil" -> Nil    
 
 
 -- Primitive operations
