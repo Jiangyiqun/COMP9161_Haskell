@@ -30,9 +30,13 @@ evaluate bs = evalE E.empty (Let bs (Var "main"))
 evalE :: VEnv -> Exp -> Value
 -- Constants and Boolean Constructors
 evalE env (Num n)       = I n
-evalE env (Con "True")  = B True
-evalE env (Con "False") = B False
-
+-- evalE env (Con "True")  = B True
+-- evalE env (Con "False") = B False
+evalE env (Con b)  = 
+    case b of
+        "True" -> B True
+        "False" -> B False
+        "Nil" -> Nil    -- List constructors and primops
 
 
 -- Primitive operations
@@ -40,19 +44,21 @@ evalE env (App (App (Prim op) e1) e2) =
     let I v1 = evalE env e1
         I v2 = evalE env e2
     in case op of
-        Add   -> I $ v1 + v2
-        Sub   -> I $ v1 - v2
-        Mul   -> I $ v1 * v2
+        -- arithmetic
+        Add   -> I (v1 + v2)
+        Sub   -> I (v1 - v2)
+        Mul   -> I (v1 * v2)
         Quot  -> case v2 of
-                  0 -> error "error: divide by zero"
-                  _ -> I (quot v1 v2)
-        -- negate is definded afterwards
-        Gt    -> B $ v1 > v2
-        Ge    -> B $ v1 >= v2
-        Lt    -> B $ v1 < v2
-        Le    -> B $ v1 <= v2
-        Eq    -> B $ v1 == v2
-        Ne    -> B $ v1 /= v2
+                    0 -> error "error: divide by zero"
+                    _ -> I (quot v1 v2)
+        -- comparision
+        Gt    -> B (v1 >  v2)
+        Ge    -> B (v1 >= v2)
+        Lt    -> B (v1 <  v2)
+        Le    -> B (v1 <= v2)
+        Eq    -> B (v1 == v2)
+        Ne    -> B (v1 /= v2)
+-- negation
 -- evalE env (App (Prim Neg) e) =
 --     let I v = evalE env e
 --     in I (-v)
@@ -60,9 +66,10 @@ evalE env (App (App (Prim op) e1) e2) =
 
 -- Evaluation of if-expression
 evalE env (If e1 e2 e3) =
-    case evalE env e1 of
-        (B True) -> evalE env e2
-        (B False) -> evalE env e3
+    let v1 = evalE env e1
+    in case v1 of
+        B True -> evalE env e2
+        B False -> evalE env e3
 
 
 -- Variables
@@ -72,7 +79,6 @@ evalE env (Var x) = case E.lookup env x of
 
 
 -- List constructors and primops
-evalE env (Con "Nil") = Nil
 evalE env (App (App (Con "Cons") e1) e2) =
     let I v1 = evalE env e1
         v2 = evalE env e2
@@ -162,7 +168,8 @@ evalE env (Letrec e1 e2) =
                     Nil -> let e1' = Letrec (x ++ [Bind id ty [] e1])
                            in evalE env (e1' e2)
                     elt -> let env' = E.add env (id, elt)
-                           in evalE env' (Letrec x e2)
+                               v2 = Letrec x e2
+                           in evalE env' v2
 
 
 -- Other
