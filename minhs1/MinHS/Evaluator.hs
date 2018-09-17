@@ -27,8 +27,6 @@ evaluate bs = evalE E.empty (Let bs (Var "main"))
 
 
 evalE :: VEnv -> Exp -> Value
-
-
 -- Constants and Boolean Constructors
 evalE env (Num n)       = I n
 evalE env (Con b)  = 
