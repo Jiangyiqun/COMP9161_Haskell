@@ -43,21 +43,30 @@ evalE env (Con b)  =
 evalE env (App (App (Prim op) e1) e2) =
     let I v1 = evalE env e1
         I v2 = evalE env e2
-    in case op of
-        -- arithmetic
-        Add   -> I (v1 + v2)
-        Sub   -> I (v1 - v2)
-        Mul   -> I (v1 * v2)
-        Quot  -> case v2 of
-                    0 -> error "error: divide by zero"
-                    _ -> I (quot v1 v2)
-        -- comparision
-        Gt    -> B (v1 >  v2)
-        Ge    -> B (v1 >= v2)
-        Lt    -> B (v1 <  v2)
-        Le    -> B (v1 <= v2)
-        Eq    -> B (v1 == v2)
-        Ne    -> B (v1 /= v2)
+    in  if op == Add
+            then I (v1 + v2)
+        else if op == Sub
+            then I (v1 - v2)
+        else if op == Mul
+            then I (v1 * v2)
+        else if op == Quot
+            then if v2 == 0
+                then error "error: divide by zero"
+                else I (quot v1 v2)
+        else if op == Gt
+            then B (v1 >  v2)
+        else if op == Ge
+            then B (v1 >= v2)
+        else if op == Lt
+            then B (v1 <  v2)
+        else if op == Le
+            then B (v1 <= v2)
+        else if op == Eq
+            then B (v1 == v2)
+        else if op == Ne
+            then B (v1 /= v2)
+        else
+            error "error: operator does not support"
 -- negation
 -- evalE env (App (Prim Neg) e) =
 --     let I v = evalE env e
