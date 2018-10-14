@@ -89,20 +89,164 @@ unquantify' i s (Forall x t) = do x' <- fresh
                                               ((show i =: x') <> s)
                                               (substQType (x =:TypeVar (show i)) t)
 
+
+------------------------------ Unification -----------------------------
 unify :: Type -> Type -> TC Subst
-unify = error "implement me"
 
+unify (TypeVar v1) (TypeVar v2) =
+  case v1 == v2 of True -> return emptySubst
+                   False -> return (v1 =: (TypeVar v2))
+                  
+unify (Base t1) (Base t2) =
+  case t1 == t2 of True -> return emptySubst
+                   False -> typeError (TypeMismatch (Base t1) (Base t2))
+
+unify (Prod x1 x2) (Prod y1 y2) =
+  unify x1 y1 >>= (
+    \s1 -> unify (substitute s1 x2) (substitute s1 y2) >>= (
+      \s2 -> return (s1 <> s2)))
+
+unify (Sum x1 x2) (Sum y1 y2) =
+  unify x1 y1 >>= (
+    \s1 -> unify (substitute s1 x2) (substitute s1 y2) >>= (
+      \s2 -> return (s1 <> s2)))
+
+unify (Arrow x1 x2) (Arrow y1 y2) =
+  unify x1 y1 >>= (
+    \s1 -> unify (substitute s1 x2) (substitute s1 y2) >>= (
+      \s2 -> return (s1 <> s2)))
+
+unify (TypeVar v) (t) =
+  case (elem v (tv t)) of True -> typeError (OccursCheckFailed v t)
+                          False -> return (v =: t) 
+
+unify (t) (TypeVar v) =
+  case (elem v (tv t)) of True -> typeError (OccursCheckFailed v t)
+                          False -> return (v =: t)
+
+unify t1 t2 = error ("something went wrong in unify!")
+
+
+----------------------------- Generalise ------------------------------
 generalise :: Gamma -> Type -> QType
-generalise g t = error "implement me"
+{-
+foldl  	(a -> b -> a) -> a -> [b] -> a
+it takes the second argument and the first item of the list and applies
+the function to them, then feeds the function with this result and the
+second argument and so on. 
+-}  
+generalise g t = 
+  let f = \t' -> \x -> Forall x t'
+      arg = Ty t
+      list = let f' = \x -> not $ elem x (tvGamma g)
+                 exp = tv t
+              in reverse (filter f' exp)
+   in foldl f arg list
 
+convertToTc::Gamma -> Type -> TC QType
+convertToTc g t = do
+  return (generalise g t)
+
+
+-- ------------------------------ Infer Program ---------------------------
+-- inferProgram :: Gamma -> Program -> TC (Program, Type, Subst)
 inferProgram :: Gamma -> Program -> TC (Program, Type, Subst)
-inferProgram env bs = error "implement me! don't forget to run the result substitution on the"
-                            "entire expression using allTypes from Syntax.hs"
+inferProgram g [Bind id Nothing [] e] = 
+    inferExp g e >>= \(expr', t , s) -> 
+      let program = ([Bind id (Just (generalise g t)) [] (allTypes (substQType s) expr') ])
+       in return (program, t, s)
 
+
+--------------------------- Type Inference Rule ------------------------                            
 inferExp :: Gamma -> Exp -> TC (Exp, Type, Subst)
-inferExp g _ = error "Implement me!"
--- -- Note: this is the only case you need to handle for case expressions
--- inferExp g (Case e [Alt "Inl" [x] e1, Alt "Inr" [y] e2])
--- inferExp g (Case e _) = typeError MalformedAlternatives
 
+-- Constants and Varibles
+inferExp g (Num n) =
+  return (Num n, Base Int, emptySubst)
 
+inferExp g (Var id) = 
+  let Just qtau = E.lookup g id
+  in unquantify (qtau) >>= (
+    \t -> return (Var id, t, emptySubst)) 
+
+-- Constructors and Primops
+inferExp g (Con c) =
+  let Just qtau = constType c
+  in unquantify (qtau) >>= (
+    \t -> return (Con c, t, emptySubst))
+
+inferExp g (Prim p) =
+  let qtau = primOpType p
+  in unquantify (qtau) >>= (
+    \t -> return (Prim p, t, emptySubst))
+
+-- Applications
+inferExp g (App e1 e2) =
+  inferExp g e1 >>= (
+  \(e1', t1, s1) -> inferExp g e2 >>= (
+  \(e2', t2, s2) -> fresh >>= (
+  \alpha -> unify (substitute s2 t1) (Arrow t2 alpha) >>= (
+  \u -> let e'' = App e1' e2'
+            e1'' = substitute u alpha
+            e2'' = s1<>s2<>u
+         in return (e'', e1'', e2'')
+  ))))
+
+-- If Statement 
+inferExp g (If e e1 e2) =
+  inferExp g e >>= (
+  \(e', t, s) -> unify t (Base Bool) >>= (
+  \u -> inferExp g e1 >>= (
+  \(e1', t1, s1) -> inferExp g e2 >>= (
+  \(e2', t2, s2) -> unify (substitute s2 t1) (t2) >>= (
+  \u' -> let e'' = If e' e1' e2'
+             e1'' = substitute u' t2
+             e2'' = u' <> s2 <> s1 <> u <> s
+          in return(e'', e1'', e2'')
+  )))))
+
+-- Case
+inferExp env (Case e [Alt id1 [x1] e1, Alt id2 [y1] e2]) =
+  fresh >>= (
+  \alpha1 -> fresh >>= (
+  \alpha2 -> inferExp env e >>= (
+  \(e', t, s) -> inferExp (E.add env (x1, (Ty alpha1))) e1 >>= (
+  \(e1', tl, s1) -> inferExp (E.add env (y1, (Ty alpha2))) e2 >>= (
+  \(e2', tr, s2) -> let t1 = substitute (s<>s1<>s2) (Sum alpha1 alpha2)
+                        t2 = substitute (s1<>s2) t
+                     in unify t1 t2 >>= (
+  \u -> unify (substitute (s2<>u) tl) (substitute u tr) >>= (
+  \u' -> let e'' = (Case e' [Alt id1 [x1] e1', Alt id2 [y1] e2'])
+             x'' = substitute (u<>u') tr
+             e1'' = u<>u'
+          in return (e'' ,x'', e1'')
+  )))))))
+
+-- Recursive Functions
+inferExp env (Recfun (Bind funId Nothing [varId] e)) =
+  fresh >>= (
+  \alpha1 -> fresh >>= (
+  \alpha2 -> let env' = E.addAll env [(varId, (Ty alpha1)), (funId, (Ty alpha2))]
+             in inferExp env' e >>= (
+  \(e', t, s) -> unify (substitute s alpha2) (Arrow (substitute s alpha1) t) >>= (
+  \u -> let gamma' = E.addAll env [(varId, (Ty alpha1)),(funId, (Ty alpha2))]
+            type' = substitute u (Arrow (substitute s alpha1) t)
+         in convertToTc gamma' type' >>= (
+  \tf -> let f = (Recfun (Bind funId (Just tf) [varId] e'))
+             x = (substitute u (Arrow (substitute s alpha1) t))
+             e = s<>u
+          in return (f, x , e)
+  )))))
+
+-- Let Bindings
+inferExp env (Let [Bind id Nothing [] e1] e2) =
+  inferExp env e1 >>= (
+  \(e1', t1, s1) -> inferExp (E.add env (id, (generalise env t1))) e2 >>= (
+  \(e2', t2, s2) -> convertToTc (E.add env (id, (generalise env t1))) t1 >>= (
+  \t1Final -> let e1'' = (Let [Bind id (Just (t1Final)) [] e1'] e2')
+                  x'' = t2
+                  e2'' = s2<>s1
+               in return (e1'', x'', e2'')
+  )))
+
+inferExp g _ = error "something wrong in inferExp!"
