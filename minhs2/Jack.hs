@@ -103,24 +103,18 @@ unify (Base t1) (Base t2) =
 
 unify (Prod x1 x2) (Prod y1 y2) =
   unify x1 y1 >>= (
-    \s1 -> let x2' = substitute s1 x2
-               y2' = substitute s1 y2
-            in unify x2' y2' >>= (
-    \s2 -> return (s1 <> s2)))
+    \s1 -> unify (substitute s1 x2) (substitute s1 y2) >>= (
+      \s2 -> return (s1 <> s2)))
 
 unify (Sum x1 x2) (Sum y1 y2) =
   unify x1 y1 >>= (
-    \s1 -> let x2' = substitute s1 x2
-               y2' = substitute s1 y2
-            in unify x2' y2' >>= (
-    \s2 -> return (s1 <> s2)))
+    \s1 -> unify (substitute s1 x2) (substitute s1 y2) >>= (
+      \s2 -> return (s1 <> s2)))
 
 unify (Arrow x1 x2) (Arrow y1 y2) =
   unify x1 y1 >>= (
-    \s1 -> let x2' = substitute s1 x2
-               y2' = substitute s1 y2
-            in unify x2' y2' >>= (
-    \s2 -> return (s1 <> s2)))
+    \s1 -> unify (substitute s1 x2) (substitute s1 y2) >>= (
+      \s2 -> return (s1 <> s2)))
 
 unify (TypeVar v) (t) =
   case (elem v (tv t)) of True -> typeError (OccursCheckFailed v t)
@@ -193,75 +187,66 @@ inferExp g (App e1 e2) =
   \(e2', t2, s2) -> fresh >>= (
   \alpha -> unify (substitute s2 t1) (Arrow t2 alpha) >>= (
   \u -> let e'' = App e1' e2'
-            t'' = substitute u alpha
-            s'' = s1<>s2<>u
-         in return (e'' ,t'', s'')
+            e1'' = substitute u alpha
+            e2'' = s1<>s2<>u
+         in return (e'', e1'', e2'')
   ))))
 
 -- If Statement 
 inferExp g (If e e1 e2) =
   inferExp g e >>= (
   \(e', t, s) -> unify t (Base Bool) >>= (
-  \tc -> inferExp g e1 >>= (
+  \u -> inferExp g e1 >>= (
   \(e1', t1, s1) -> inferExp g e2 >>= (
-  \(e2', t2, s2) -> let t1' = substitute s2 t1
-                     in unify t1' t2 >>= (
-  \tc' -> let e'' = If e' e1' e2'
-              t'' = substitute tc' t2
-              s'' = tc'<>s2<>s1<>tc<> s
-          in return(e'', t'', s'')
+  \(e2', t2, s2) -> unify (substitute s2 t1) (t2) >>= (
+  \u' -> let e'' = If e' e1' e2'
+             e1'' = substitute u' t2
+             e2'' = u' <> s2 <> s1 <> u <> s
+          in return(e'', e1'', e2'')
   )))))
 
 -- Case
-inferExp env (Case e [Alt id1 [x] e1, Alt id2 [y] e2]) =
+inferExp env (Case e [Alt id1 [x1] e1, Alt id2 [y1] e2]) =
   fresh >>= (
   \alpha1 -> fresh >>= (
   \alpha2 -> inferExp env e >>= (
-  \(e', t, s) -> inferExp (E.add env (x, (Ty alpha1))) e1 >>= (
-  \(e1', tl, s1) -> inferExp (E.add env (y, (Ty alpha2))) e2 >>= (
+  \(e', t, s) -> inferExp (E.add env (x1, (Ty alpha1))) e1 >>= (
+  \(e1', tl, s1) -> inferExp (E.add env (y1, (Ty alpha2))) e2 >>= (
   \(e2', tr, s2) -> let t1 = substitute (s<>s1<>s2) (Sum alpha1 alpha2)
                         t2 = substitute (s1<>s2) t
                      in unify t1 t2 >>= (
-  \tc -> let t1' = substitute (s2<>tc) tl
-             t2' = substitute tc tr
-          in unify t1' t2' >>= (
-  \tc' -> let e'' = (Case e' [Alt id1 [x] e1', Alt id2 [y] e2'])
-              t'' = substitute (tc<>tc') tr
-              s'' = tc<>tc'
-          in return (e'' ,t'', s'')
+  \u -> unify (substitute (s2<>u) tl) (substitute u tr) >>= (
+  \u' -> let e'' = (Case e' [Alt id1 [x1] e1', Alt id2 [y1] e2'])
+             x'' = substitute (u<>u') tr
+             e1'' = u<>u'
+          in return (e'' ,x'', e1'')
   )))))))
 
 -- Recursive Functions
-inferExp env (Recfun (Bind f _ [x] e)) =
+inferExp env (Recfun (Bind funId Nothing [varId] e)) =
   fresh >>= (
   \alpha1 -> fresh >>= (
-  \alpha2 -> let pairs = [(x, (Ty alpha1)), (f, (Ty alpha2))]
-                 env' = E.addAll env pairs
+  \alpha2 -> let env' = E.addAll env [(varId, (Ty alpha1)), (funId, (Ty alpha2))]
              in inferExp env' e >>= (
-  \(e', t, s) -> let t1 = substitute s alpha2
-                     t2 = Arrow (substitute s alpha1) t
-                  in unify t1 t2 >>= (
-  \tc -> let paris' = [(x, (Ty alpha1)),(f, (Ty alpha2))]
-             env'' = E.addAll env paris'
-             t' = substitute tc (Arrow (substitute s alpha1) t)
-         in convertToTc env'' t' >>= (
-  \tc' -> let e'' = Recfun (Bind f (Just tc') [x] e')
-              t'' = substitute tc (Arrow (substitute s alpha1) t)
-              s'' = s<>tc
-          in return (e'' ,t'', s'')
+  \(e', t, s) -> unify (substitute s alpha2) (Arrow (substitute s alpha1) t) >>= (
+  \u -> let gamma' = E.addAll env [(varId, (Ty alpha1)),(funId, (Ty alpha2))]
+            type' = substitute u (Arrow (substitute s alpha1) t)
+         in convertToTc gamma' type' >>= (
+  \tf -> let f = (Recfun (Bind funId (Just tf) [varId] e'))
+             x = (substitute u (Arrow (substitute s alpha1) t))
+             e = s<>u
+          in return (f, x , e)
   )))))
 
 -- Let Bindings
-inferExp env (Let [Bind x _ [] e1] e2) =
+inferExp env (Let [Bind id Nothing [] e1] e2) =
   inferExp env e1 >>= (
-  \(e1', t1, s1) -> let env' = E.add env (x, (generalise env t1))
-                     in inferExp env' e2 >>= (
-  \(e2', t2, s2) -> let env'' = E.add env (x, (generalise env t1))
-                     in convertToTc env'' t1 >>= (
-  \tc -> let e'' = Let [Bind x (Just (tc)) [] e1'] e2'
-             t'' = t2
-             s'' = s2<>s1
-          in return (e'' ,t'', s'')
+  \(e1', t1, s1) -> inferExp (E.add env (id, (generalise env t1))) e2 >>= (
+  \(e2', t2, s2) -> convertToTc (E.add env (id, (generalise env t1))) t1 >>= (
+  \t1Final -> let e1'' = (Let [Bind id (Just (t1Final)) [] e1'] e2')
+                  x'' = t2
+                  e2'' = s2<>s1
+               in return (e1'', x'', e2'')
   )))
 
 inferExp g _ = error "something wrong in inferExp!"
